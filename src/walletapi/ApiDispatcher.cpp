@@ -239,6 +239,14 @@ ApiDispatcher::ApiDispatcher(
             "/transactions/hash/" + ApiConstants::hashRegex,
             router(&ApiDispatcher::getTransactionDetails, WalletMustBeOpen, viewWalletsAllowed))
 
+        .Get(
+            "/transactions/paymentid/" + ApiConstants::hashRegex,
+            router(&ApiDispatcher::getTransactionsByPaymentId, WalletMustBeOpen, viewWalletsAllowed))
+
+        .Get(
+            "/transactions/paymentid",
+            router(&ApiDispatcher::getTransactionsWithPaymentId, WalletMustBeOpen, viewWalletsAllowed))
+
         /* Get balance for the wallet */
         .Get("/balance", router(&ApiDispatcher::getBalance, WalletMustBeOpen, viewWalletsAllowed))
 
@@ -757,7 +765,7 @@ std::tuple<Error, uint16_t> ApiDispatcher::makeAdvancedTransaction(
 
     std::vector<std::pair<std::string, uint64_t>> destinations;
 
-    for (const auto destination : destinationsJSON)
+    for (const auto &destination : destinationsJSON)
     {
         const std::string address = getJsonValue<std::string>(destination, "address");
         const uint64_t amount = getJsonValue<uint64_t>(destination, "amount");
@@ -1522,7 +1530,7 @@ std::tuple<Error, uint16_t> ApiDispatcher::getTransactionDetails(
 
     Common::podFromHex(hashStr, hash.data);
 
-    for (const auto tx : m_walletBackend->getTransactions())
+    for (const auto &tx : m_walletBackend->getTransactions())
     {
         if (tx.hash == hash)
         {
@@ -1552,6 +1560,56 @@ std::tuple<Error, uint16_t> ApiDispatcher::getTransactionDetails(
 
     /* Not found */
     return {SUCCESS, 404};
+}
+
+std::tuple<Error, uint16_t> ApiDispatcher::getTransactionsByPaymentId(
+    const httplib::Request &req,
+    httplib::Response &res,
+    const nlohmann::json &body) const
+{
+    std::string paymentID = req.path.substr(std::string("/transactions/paymentid/").size());
+
+    std::vector<WalletTypes::Transaction> transactions;
+
+    for (const auto &tx : m_walletBackend->getTransactions())
+    {
+        if (tx.paymentID == paymentID)
+        {
+            transactions.push_back(tx);
+        }
+    }
+
+    nlohmann::json j {{"transactions", transactions}};
+
+    publicKeysToAddresses(j);
+
+    res.set_content(j.dump(4) + "\n", "application/json");
+
+    return {SUCCESS, 200};
+}
+
+std::tuple<Error, uint16_t> ApiDispatcher::getTransactionsWithPaymentId(
+    const httplib::Request &req,
+    httplib::Response &res,
+    const nlohmann::json &body) const
+{
+    std::vector<WalletTypes::Transaction> transactions;
+
+    for (const auto &tx : m_walletBackend->getTransactions())
+    {
+        if (tx.paymentID != "")
+        {
+            transactions.push_back(tx);
+        }
+    }
+
+    nlohmann::json j {{"transactions", transactions}};
+
+    publicKeysToAddresses(j);
+
+    res.set_content(j.dump(4) + "\n", "application/json");
+
+    return {SUCCESS, 200};
 }
 
 std::tuple<Error, uint16_t>
@@ -1594,7 +1652,7 @@ std::tuple<Error, uint16_t>
 
     nlohmann::json j;
 
-    for (const auto [address, unlocked, locked] : balances)
+    for (const auto &[address, unlocked, locked] : balances)
     {
         j.push_back({{"address", address}, {"unlocked", unlocked}, {"locked", locked}});
     }
